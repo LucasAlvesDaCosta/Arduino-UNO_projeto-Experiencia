@@ -1,0 +1,203 @@
+#include <LiquidCrystal.h> //Inclui biblioteca no programa
+/*
+Cria objeto lcd da classe LiquidCrystal
+RS 2
+Enable 3
+DB4 4
+DB5 5
+DB6 6
+DB7 7
+*/
+LiquidCrystal lcd(12,3,4,5,6,7);
+
+// Leitura HC-SR04
+const uint8_t trig_pin = 9;
+const uint8_t echo_pin = 10;
+ //Sensor de temperatura usando o LM35
+const int LM35 = A0; // Define o pino que lera a saída do LM35
+float temperatura; // Variável que armazenará a temperatura medida
+uint32_t print_timer;
+//Sensor de luz
+int ledPin = 11; //Led no pino 11
+int ldrPin = 1; //LDR no pino analígico A1
+int ldrValor = 0; //Valor lido do LDR
+//AlaRme
+float seno;
+int frequencia;
+int buttonState;
+const int buttonPin = 2; // Número do pino do botão de pressão
+const int alrmPin = 13; // Número do pino do alarme
+// Variáveis
+ // Variável para leitura do estado do botão
+int* controle; //Ponteiro usado para mudar o estado do botão em tempo de execução
+// Função que dispara o alarme de inceendio quando chamada
+void alarme(){
+  int button =(int)*controle;
+  Serial.print("ALARME state-> "); 
+  Serial.println(*controle); // imprime o valor da variável no serial console
+  
+  if(button == 0){// Caso o botão mude de estado (1/0) escrevo na tela de cristal
+      lcd.clear();
+      lcd.print("ALERT: Alarme");
+      lcd.setCursor(0,2);
+      lcd.print("Desativado!");
+      delay(200);
+    }
+  while(button != 0){// enquanto o estado do botão for alto o alarme toca
+    for(int x=0;x<180;x++){
+   	 //converte graus para radiando e depois obtém o valor do seno
+      seno=(sin(x*3.1416/180));
+	 //gera uma frequência a partir do valor do seno
+	 	frequencia = 2000+(int(seno*1000));
+	 	tone(13,frequencia);
+	 delay(2);
+    }  
+     
+    Serial.print("O ALARME state-> "); 
+    Serial.println(*controle);
+    // passando o estado atual do botão para a variavél de controle do laço 
+     button = (int)*controle;   
+  }
+    noTone(13);// caso o estado do botão mude finalizo o alarme no pino 13
+       Serial.println("Alarme finalizado!");
+}
+//Alarme do sensor ultrassonico utilizado para detectar presença
+void alarmeDistance(){
+  int frequencia = 1500;
+  // Emite uma leve frequencia de X interações, cada uma sendo mais que a ultima
+  for(int x=0;x<20;x++){
+   	 tone(13,frequencia);
+    frequencia -= 15;
+	 delay(2);        
+    }
+  tone(13,0);// forçando a parada do alarme
+  noTone(13);// interrompendo o alarme no pino 13.   
+}
+//Função responsável por mudar o valor da variavel (controle) utilizada em outras funções
+// Isso é feito a partir de uma interrupção pré-definida.
+void interrupcao(){  
+  if(*controle != 1) controle = 0;// muda o valor da variavel quando detectada uma interrupção
+  if(*controle == 0){
+    buttonState = 1;
+    controle = &buttonState;// mudo o estado do botão para alto
+  }
+  if(*controle == 1){
+    buttonState = 0;
+    controle = &buttonState;// mudo o estado do botão para baixo
+  }
+  Serial.println("BUTTON PRESS!!");// console serial: sempre que o botão for pressionado
+  lcd.setCursor(15,2);
+  lcd.print("#");// Escreve um '#' no canto inferior direito simbolizando que o botão foi acionado.  
+ delay(100);
+}
+//Executa primeiramente e uma só vez quando o Arduino liga
+void setup() {
+  attachInterrupt(0,interrupcao,RISING);// Configura a interrupção  
+  Serial.begin(9600); // Habilita Comunicação Serial a uma taxa de 9600 bauds.
+  pinMode(ledPin,OUTPUT); //define a porta 11 como saída
+  analogReference(EXTERNAL); // Muda a referência para a tensão no pino AREF
+  lcd.begin(16,2); //Inicializa display de 2 linhas x 16 colunas
+
+  // Configuração do estado inicial dos pinos Trig e Echo.
+  pinMode(trig_pin, OUTPUT);
+  pinMode(echo_pin, INPUT);
+  digitalWrite(trig_pin, LOW);
+  // saida do alarme
+  pinMode(13,OUTPUT);
+  pinMode(alrmPin, OUTPUT); //Inicializa o pino do alarme como saída (OUTPUT)
+  pinMode(buttonPin, INPUT); // Inicializa o pin do botão como entrada (INPUT)
+
+}
+ 
+void loop() {
+  ///ler o valor do LDR
+  ldrValor = analogRead(ldrPin); //O valor lido será entre 0 e 1023
+    int button2 =(int)*controle;// recebo o estado do botão
+  //se o valor lido for maior ou igual à 800, liga o led
+  if (ldrValor>= 800){
+     digitalWrite(ledPin,HIGH);  
+      lcd.clear();
+      lcd.print("Boa noite...");
+       if(button2 != 0){
+        lcd.setCursor(0,2);
+        lcd.print("Alarme: ON");// escrevo na tela de cristal o estado do alarme
+      }   
+    delay(200);
+  }
+// senão, apaga o led
+  else{          
+     lcd.clear();
+     lcd.print("Bom Dia.."); 
+    delay(200);
+      if(button2 != 0){
+        lcd.setCursor(0,2);
+        lcd.print("Alarme: ON");//estado do alarme
+      }
+  }
+// Espera 0,5s (500ms) entre medições.
+  if (millis() - print_timer > 500) {
+     print_timer = millis();
+ 
+    // Pulso de 5V por pelo menos 10us para iniciar medição.
+    digitalWrite(trig_pin, HIGH);
+     delayMicroseconds(5);
+       digitalWrite(trig_pin, LOW);
+
+    /* Mede quanto tempo o pino de echo ficou no estado alto, ou seja,
+     o tempo de propagação da onda. */
+     uint32_t pulse_time = pulseIn(echo_pin, HIGH);
+
+    /* A distância entre o sensor ultrassom e o objeto será proporcional a velocidade
+    do som no meio e a metade do tempo de propagação. Para o ar na
+    temperatura ambiente Vsom = 0,0343 cm/us. */
+     double distance = 0.01715 * pulse_time;
+
+    // Imprimimos o valor na porta serial;
+     Serial.print(distance); 
+     Serial.println(" cm");
+     double metros = distance/100;// convertendo a distancia em mêtros   
+
+    if(distance < 120.0){// Verifica se a distancia é menor que 1 metro e 20 centimetros OR 120 cm           
+       Serial.println("Presenca detectada...");
+      lcd.clear();      
+      lcd.print("Presenca ");
+      lcd.setCursor(0,2);
+      lcd.print("detectada!");// escreve o alerta de presença na tela de cristal
+       delay(200);
+      lcd.clear();
+      lcd.print("DISTANCIA: ");
+      lcd.setCursor(0,2);
+      lcd.print(metros);
+      lcd.print(" METROS.");// escreve na tela de cristal a distancia detectada pelo sensor
+       delay(200); 
+       alarmeDistance();//Aciona o alarme de distancia
+    }
+   
+  }
+/*-----------------------------------------------------------------*/  
+   temperatura = (float(analogRead(LM35))*5/(1023))/0.01;
+   float temp = temperatura/1024*1562.5/10;// Converte a temperatura em graus celcius
+  
+      Serial.print("Temperatura: ");
+      Serial.println(temperatura);
+       lcd.clear(); //Limpa o display
+      //Imprime a temperatura no display
+       lcd.print("Temperatura: ");
+         lcd.setCursor(0,2);
+       lcd.print(temp);
+       lcd.print(" Graus °C");
+   delay(200);
+    
+ 
+  if(temp > 20.0){// Verifica se a temperatura é superior a 20°C
+    Serial.println("incendio detectado");
+    lcd.clear();
+    lcd.print("Alert: INCENDIO");
+    lcd.setCursor(0,2);
+    lcd.print("DETECTADO!");// escreve o alerta na tela de cristal      
+      alarme();// Aciona o alarme
+          
+  }
+
+ delay(100);
+}
